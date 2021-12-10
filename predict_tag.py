@@ -1,19 +1,15 @@
-import gensim, re
+import os
+import pickle
+import re
+
+import gensim
 import numpy as np
 import pandas as pd
-import pickle
-from os import listdir
-
-from sklearn.model_selection import train_test_split
-from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
-
-import sys
-import os
-
-from keras.models import Sequential, load_model
 from keras.layers import LSTM, Dense, Embedding
-
+from keras.models import Sequential, load_model
+from keras.preprocessing.sequence import pad_sequences
+from keras.preprocessing.text import Tokenizer
+from sklearn.model_selection import train_test_split
 from underthesea import word_tokenize
 
 sep = os.sep # directory separtor
@@ -21,7 +17,7 @@ data_folder = "data" # folder that contains data and model
 data_file = "Data.csv"
 model_version = "7"
 
-enable_train_new_model = True # Set this to False if you want to reuse an existing model with model_version
+enable_train_new_model = False # Set this to False if you want to reuse an existing model with model_version
 
 # Dictionary to scale the dataset for a more balanced dataset
 freq = dict({("#tìmngườiyêu", 4), ("#lcd", 9), ("#gópý", 11), ("#bócphốt", 12), ("#hỏiđáp", 13), ("#tìmbạn", 23), ("#tâmsự", 1), ("#chiasẻ", 1)})
@@ -127,7 +123,6 @@ if __name__ == '__main__':
         model.add(Embedding(len(word_model.wv)+1,300,input_length=X.shape[1],weights=[embedding_matrix],trainable=False))
         model.add(LSTM(300,return_sequences=False))
         model.add(Dense(Y.shape[1],activation="softmax"))
-        model.summary()
         model.compile(optimizer="adam",loss="categorical_crossentropy",metrics=['acc'])
 
         batch = 64
@@ -137,9 +132,6 @@ if __name__ == '__main__':
     else:
         word_model = gensim.models.Word2Vec.load(data_folder + sep + "word_model_" + model_version + ".save")
         model = load_model(data_folder + sep + "predict_model_" + model_version + ".save")
-        model.summary()
-
-    model.evaluate(X_test, Y_test)
 
     # Test model
     file = open(data_folder + sep + "My_data.txt", "r", encoding="utf8")
