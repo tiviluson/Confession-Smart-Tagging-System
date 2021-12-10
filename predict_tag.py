@@ -19,14 +19,14 @@ from underthesea import word_tokenize
 sep = os.sep # directory separator
 data_folder = "data" # folder that contains data and model
 data_file = "Data.csv"
-model_version = "example"
+model_version = "final"
 
-enable_train_new_model = False # Set this to False if you want to reuse an existing model with model_version
+enable_train_new_model = True # Set this to False if you want to reuse an existing model with model_version
 
 PAD_LEN = 500 # The maximum length of a sentence
 
 # Dictionary to scale the dataset for a more balanced dataset
-freq = dict({("#tìmngườiyêu", 4), ("#lcd", 9), ("#gópý", 11), ("#bócphốt", 12), ("#hỏiđáp", 13), ("#tìmbạn", 23), ("#tâmsự", 1), ("#chiasẻ", 1)})
+freq = dict({("#tìmngườiyêu", 3), ("#lcd", 3), ("#gópý", 18), ("#bócphốt", 10), ("#hỏiđáp", 2), ("#tìmbạn", 2), ("#tâmsự", 1), ("#chiasẻ", 1)})
 
 def loadDataFromCSV():
     df = pd.read_csv(data_folder + sep + data_file)
@@ -44,21 +44,13 @@ def txtTokenizer(texts):
     word_index = tokenizer.word_index
     return tokenizer, word_index
 
-# def preProcess(sentences):
-#     # sentences: The list of all sentences in a confession
-#     text = [word_tokenize(sentence, format="text") for sentence in sentences]
-# #     text = [re.sub(r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))", '', sentence) for sentence in sentences if sentence!='']
-#     text = [re.sub(r'([^\s\w]|"\')+', '', sentence) for sentence in text if sentence!='']
-#     text = [sentence.lower().strip().split() for sentence in text]
-#     return text
-
 # Remove trash symbols and spaces + Lower the case of all data
 def preProcess(sentences):
     # Split sentences according to ; * \n . ? !
     text = re.split('; |\*|\n|\.|\?|\!', sentences)
 
     # Remove the " \ /
-    text = [re.sub(r'|"|\\|\/', '', sentence) for sentence in text]
+    text = [re.sub(r'|,|"|\\|\/', '', sentence) for sentence in text]
 
     # VNmese compound noun
     text = [word_tokenize(sentence, format="text") for sentence in text]
@@ -147,7 +139,7 @@ def trainData():
     model.compile(optimizer="adam",loss="categorical_crossentropy",metrics=['acc'])
 
     batch = 64
-    epochs = 1
+    epochs = 10
     model.fit(X_train,Y_train,batch,epochs)
     model.save(data_folder + sep + "predict_model_" + model_version + ".save")
     model.evaluate(X_test, Y_test)
@@ -165,7 +157,6 @@ def reloadData():
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.1, shuffle=True)
     # word_model = gensim.models.Word2Vec.load(data_folder + sep + "word_model_" + model_version + ".save")
     model = load_model(data_folder + sep + "predict_model_" + model_version + ".save")
-    model.summary()
     return tokenizer, model, Y_train.columns
 
 def predictTag(tokenizer, model, labels):
@@ -176,7 +167,7 @@ def predictTag(tokenizer, model, labels):
     X_dev = pad_sequences(X_dev, maxlen=PAD_LEN)
     print("Predicting...")
     result_prediction_dict = dict()
-    prediction_cus = model.predict(X_dev, verbose=0)
+    prediction_cus = model.predict(X_dev, verbose=1)
     print(tokenizer.sequences_to_texts(X_dev))
     for i in range(len(prediction_cus)):
         result_tag = labels[np.argmax(prediction_cus[i])]
