@@ -1,0 +1,6 @@
+gensim
+sklearn
+underthesea
+keras
+tensorflow
+pandas
