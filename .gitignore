@@ -1,1 +1,4 @@
 example*
+data/predict_*
+data/*.pkl
+data/*.save
