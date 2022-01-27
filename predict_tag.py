@@ -24,12 +24,17 @@ import tensorflow as tf
 from googletrans import Translator, constants
 import math
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
 sep = os.sep # directory separator
 data_folder = "data" # folder that contains data and model
 data_file = "Data_final.csv"
-model_version = "test_switch_oversampling_spliting_5"
+model_version = "plot"
+enhanced_version = "0"
 
-enable_train_new_model = False # Set this to False if you want to reuse an existing model with model_version
+enable_train_new_model = True # Set this to False if you want to reuse an existing model with model_version
+enable_enhance_model = False # Only valid when enable_train_new_model == False. Set to True if you want to continue to train the last model
 
 PAD_LEN = 500 # The maximum length of a sentence
 
@@ -154,7 +159,6 @@ def trainData():
     print("Splitting the train and test sets...")
     train_df = texts_labels_dummy_df.sample(frac = 0.9, random_state = 69)
     test_df = texts_labels_dummy_df.drop(train_df.index)
-    print(train_df)
 
     # Do oversampling in the train set
     print("Oversampling training data...")
@@ -165,7 +169,6 @@ def trainData():
     texts_labels_dummy_df = preProcessTextInDataFrame(texts_labels_dummy_df)
     train_df = preProcessTextInDataFrame(train_df)
     test_df = preProcessTextInDataFrame(test_df)
-    print(train_df)
 
     # Create and save the tokenizer
     print("Creating tokenizer...")
@@ -205,7 +208,7 @@ def trainData():
     # Save the new model
     print("Saving the pickle...")
     file = open(data_folder + sep + "data_" + model_version + ".pkl", 'wb')
-    pickle.dump([X, Y, X_train, Y_train, X_test, Y_test], file)
+    pickle.dump([X, Y, X_train, Y_train, X_test, Y_test, train_df], file)
     file.close()
 
     # Train Word2Vec model on our data
@@ -229,51 +232,73 @@ def trainData():
     model.add(Embedding(len(word_model.wv)+1,300,input_length=X.shape[1],weights=[embedding_matrix],trainable=False))
 
     # 300 này là 300 units
-    model.add(LSTM(300,return_sequences=False))
+    model.add(LSTM(300,return_sequences=False)) # 300
     model.add(Dense(Y.shape[1],activation="softmax"))
     model.summary()
     model.compile(optimizer="adam",loss="categorical_crossentropy",metrics=['acc'])
 
     batch = 64 # mỗi lần train 64 data cùng lúc
-    epochs = 20 # train 20 lần
-    callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=3)
+    epochs = 50 # train 50 lần
+    callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=7)
     history = model.fit(X_train, Y_train, batch, epochs, callbacks=[callback])
 
     model.save(data_folder + sep + "predict_model_" + model_version + ".save")
     model.evaluate(X_test, Y_test)
 
-    return tokenizer, model, Y_train.columns
+    plt.figure(figsize=(16, 8))
+    plt.subplot(1, 2, 1)
+    plotGraphs(history, 'acc')
+    plt.ylim(None, 1)
+    plt.subplot(1, 2, 2)
+    plotGraphs(history, 'loss')
+    plt.ylim(0, None)
+
+    return tokenizer, model, Y_train.columns, texts_labels_dummy_df["Texts"].tolist()
 
 # Reload all required data for reusing a model
 def reloadData():
     file = open(data_folder + sep + "tokenizer_" + model_version + ".json")
     tokenizer = tokenizer_from_json(file.read())
     file = open(data_folder + sep + "data_" + model_version + ".pkl", 'rb')
-    X, Y, X_train, Y_train, X_test, Y_test = pickle.load(file)
+    X, Y, X_train, Y_train, X_test, Y_test, train_df = pickle.load(file)
     file.close()
-    model = load_model(data_folder + sep + "predict_model_" + model_version + ".save")
+    prev_version = str(int(enhanced_version) - 1)
+    if enable_enhance_model == True and enable_train_new_model == False:
+        model = load_model(data_folder + sep + "predict_model_" + model_version + "_" + prev_version + ".save")
+    else:
+        model = load_model(data_folder + sep + "predict_model_" + model_version + ".save")
     model.summary()
-    return tokenizer, model, Y.columns
+    return tokenizer, model, Y.columns, X_train, Y_train, X_test, Y_test
 
-def predictTag(tokenizer, model, labels):
+# Continue to train the previous version model
+def enhanceModel(model, X_train, Y_train, X_test, Y_test):
+    print("Continuing to train model...")
+    batch = 64 # mỗi lần train 64 data cùng lúc
+    epochs = 20 # train 20 lần
+    callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=7)
+    history = model.fit(X_train, Y_train, batch, epochs, callbacks=[callback])
+    print("Saving model...")
+    model.save(data_folder + sep + "predict_model_" + model_version + "_" + enhanced_version + ".save")
+    model.evaluate(X_test, Y_test)
+    plt.figure(figsize=(16, 8))
+    plt.subplot(1, 2, 1)
+    plotGraphs(history, 'acc')
+    plt.ylim(None, 1)
+    plt.subplot(1, 2, 2)
+    plotGraphs(history, 'loss')
+    plt.ylim(0, None)
+
+    return tokenizer, model, Y_train.columns
+
+def predictTag(post, tokenizer, model, labels):
     # Test model
-    file = open(data_folder + sep + "My_data.txt", "r", encoding="utf8")
-    input_string = file.read()
-    X_dev = tokenizer.texts_to_sequences(preProcess(input_string))
-    print(X_dev)
+    X_dev = tokenizer.texts_to_sequences(preProcess(post))
     X_dev = pad_sequences(X_dev, maxlen=PAD_LEN)
-
-    intermediate_layer_model = keras.Model(inputs=model.input, outputs=model.get_layer(index=1).output)
-    print("-"*20)
-    intermediate_layer_model.summary()
-    print(intermediate_layer_model(X_dev))
-    print("-"*20)
-
 
     print("Predicting...")
     result_prediction_dict = dict()
     prediction_cus = model.predict(X_dev, verbose=1)
-    print(input_string)
+    print(post)
     print(tokenizer.sequences_to_texts(X_dev))
     for i in range(len(prediction_cus)):
         result_tag = labels[np.argmax(prediction_cus[i])]
@@ -281,11 +306,38 @@ def predictTag(tokenizer, model, labels):
     print(result_prediction_dict)
     print(max(zip(result_prediction_dict.values(), result_prediction_dict.keys()))[1])
 
+def findSimilarPost(corpus, document, n=4):
+    vectorizer = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
+    X = vectorizer.fit_transform(corpus).toarray()
+    Y = vectorizer.transform([document]).toarray()
+    cos_sim = cosine_similarity(Y.reshape(1,-1), X)[0]
+    idx_of_n_max_similarity = np.argsort(cos_sim)[::-1][:n]
+    # n max similarity
+    # print(cos_sim[idx_of_n_max_similarity])
+    return idx_of_n_max_similarity, cos_sim
+
+def plotGraphs(history, metric):
+    plt.plot(history.history[metric])
+    plt.xlabel("Epochs")
+    plt.ylabel(metric)
+    plt.legend([metric, 'val_'+metric])
+
 tokenizer = None
 model = None
 labels = None
 if enable_train_new_model:
-    tokenizer, model, labels = trainData()
+    tokenizer, model, labels, corpus = trainData()
 else:
-    tokenizer, model, labels = reloadData()
-predictTag(tokenizer, model, labels)
+    tokenizer, model, labels, X_train, Y_train, X_test, Y_test = reloadData()
+    if enable_enhance_model:
+        tokenizer, model, labels = enhanceModel(model, X_train, Y_train, X_test, Y_test)
+file = open(data_folder + sep + "My_data.txt", "r", encoding="utf8")
+post = file.read()
+predictTag(post, tokenizer, model, labels)
+post = word_tokenize(post, format = "text").lower()
+df = loadDataFromCSV()
+corpus = df["content"].tolist()
+code = df["code"].tolist()
+idx, sim = findSimilarPost(corpus, post, n=4)
+for i, index in enumerate(idx):
+    print('{}. index = {}, similarity = {}, document = {}, code = {}'.format(i+1, index, sim[index], corpus[index], code[index]))
